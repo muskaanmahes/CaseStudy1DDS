@@ -1,0 +1,264 @@
+---
+title: "Case Study1"
+author: "Muskaan Mahes"
+date: "2025-10-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(scales)
+library(rsample)
+library(class)
+library(tidymodels)
+library(caret)
+library(e1071)
+
+
+setwd("/Users/muskaanmahes/Downloads")
+case_data = read.csv("CaseStudy1-data.csv")
+
+```
+
+#looking at overview of data
+
+```{r data}
+glimpse(case_data)
+summary(case_data)
+```
+
+
+```{r }
+#convert Attrition to a factor
+case_data = case_data %>% 
+  mutate(Attrition = factor(Attrition, levels = c("Yes", "No")))
+#check to ensure it is
+levels(case_data$Attrition)
+```
+
+```{r}
+#what percentage of employees left by checking the class balance
+class_balance = case_data %>% 
+  count(Attrition) %>% 
+  mutate(percent = round(100*n / sum(n), 1))
+print(class_balance)
+
+```
+
+#categorical overview
+```{r}
+
+ggplot(case_data, aes(JobRole)) +
+  geom_bar(fill = "red") +
+  coord_flip() +
+  labs(title = "Employee Count by Job Role")+
+  theme_minimal(base_size = 18)
+```
+
+#numerical overview
+```{r}
+ggplot(case_data, aes(Age)) + 
+  geom_histogram(binwidth = 5, fill = "red") +
+  labs(title = "Distribution of Employee Age")+
+  theme_minimal(base_size =18)
+
+#bar chart 
+case_data %>% 
+  ggplot(aes(x=Attrition, fill = Attrition))+
+  geom_bar()+
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.2)+
+  labs(title = "Attrition count", x = NULL, y= "Count")
+```
+
+
+#EDA
+
+#Environment Satisfaction vs. Attrition 
+```{r}
+case_data %>% 
+  mutate(EnvironmentSatisfaction = factor(EnvironmentSatisfaction,
+                                          levels = 1:4,
+                                          labels = c("Low", "Medium", 
+                                                     "High", "Very High"))) %>% 
+  ggplot(aes(x=Attrition, 
+             y = as.numeric(EnvironmentSatisfaction), 
+             fill = Attrition))+
+  geom_boxplot()+
+  scale_y_continuous(
+    breaks = 1:4,
+    labels = c("Low", "Medium", "High", "Very High")
+  )+
+  labs(title = "Environment Satisifaction Distribution by Attrition",
+       x = "Attrition Status", y = "Environment Statisfaction Levels")+
+  theme_minimal(base_size=18)
+```
+
+
+
+#monthly income v attrition (for numeric EDA)
+```{r}
+ggplot(case_data, aes(Attrition, MonthlyIncome, fill = Attrition)) +
+  geom_boxplot(fill= "red") +
+  labs(title = "Monthly Income by Attrition Status")+
+  theme_minimal(base_size=18)
+
+```
+
+
+#What Job Role has a higher/lower attrition rate
+```{r}
+case_data %>% 
+  count(JobRole, Attrition) %>% 
+  group_by(JobRole) %>% 
+  mutate(pct = n/sum(n)) %>% 
+  filter(Attrition == "Yes") %>% 
+  ggplot(aes(x = reorder(JobRole, pct), y =pct, fill = JobRole))+
+  geom_col(show.legend = FALSE)+
+  coord_flip()+
+  scale_y_continuous(labels = percent_format())+
+  labs(title = "Attrition Rate by Job Role",
+       x = "Job Role",
+       y = "Percent of Employees Who Left")+
+  theme_minimal(base_size = 18)
+  
+```
+
+# top 3 factors affecting attrition
+```{r}
+mean_values = case_data %>% 
+  select(where(is.numeric), Attrition) %>% 
+  group_by(Attrition) %>% 
+  summarize(across(where(is.numeric), mean, na.rm = TRUE)) 
+  
+#extracting yes and no
+yes_means = mean_values %>% 
+  filter(Attrition == "Yes") %>% 
+  select(-Attrition)
+no_means = mean_values %>% 
+  filter(Attrition == "No") %>% 
+  select(-Attrition)
+
+#calculating the difference
+difference = abs(yes_means - no_means)
+
+#data frame
+difference_df = data.frame(
+  Variable = names(difference),
+  Difference = as.numeric(difference)
+)
+
+#removing ID like variables
+difference_df = difference_df %>%
+  filter(!Variable %in% c("EmployeeNumber", "EmployeeCount", "StandardHours"))
+
+
+#plot 
+top3_factors = difference_df %>% 
+  arrange(desc(Difference)) %>% 
+  slice(1:3)
+ggplot(top3_factors, aes(x = reorder(Variable, Difference), y = Difference))+
+  geom_col(fill = "red")+
+  coord_flip()+
+  labs(
+    title = "Top 3 Factors Affecting Employee Attrition",
+    x= "Variable",
+    y= "Mean Difference (Yes vs No)"
+  )+
+  theme_minimal(base_size = 18)
+```
+
+############ MODELS
+
+
+
+```{r}
+# splitting the data --> keeps 70% for training and 30% for testing
+set.seed(0304)
+index = createDataPartition(case_data$Attrition, p = 0.7, list = FALSE) 
+train = case_data[index,]
+test = case_data[-index, ]
+
+```
+
+#KNN MODEL
+```{r}
+
+#selecting numeric predictors
+train_x = train %>% 
+  select(where(is.numeric))
+test_x = test %>% 
+  select(where(is.numeric))
+
+#removing ID 
+train_x = train_x %>% select(-matches("(?i)(id|employee(number)?)"))
+test_x  = test_x  %>% select(-matches("(?i)(id|employee(number)?)"))
+
+#replace Na's with 0
+train_x[!is.finite(as.matrix(train_x))] = 0
+test_x[!is.finite(as.matrix(test_x))] = 0
+
+#scale numeric data
+train_x = scale(train_x)
+test_x = scale(test_x, center = attr(train_x, "scaled:center"),
+               scale = attr(train_x, "scaled:scale"))
+
+#replaces any NaN/INF with 0
+train_x[!is.finite(train_x)] = 0
+test_x[!is.finite(test_x)] = 0
+
+
+#change the outcome vectors the cleaned data
+train_y = train$Attrition
+test_y = test$Attrition
+
+
+#KNN model
+KNN_model = knn(train = train_x, test = test_x, cl = train_y, k=3)
+
+#CM
+cm_knn = confusionMatrix(KNN_model, test_y, positive = "Yes")
+cm_knn
+```
+
+
+#####NB MODEL
+```{r}
+set.seed(0304)
+#training the Naive Bayes model
+nb_fit = naiveBayes(Attrition~., data = train)
+
+#predict on test data
+pred_nb = predict(nb_fit, test)
+
+#confusion matrix
+cm_nb = confusionMatrix(pred_nb, test$Attrition, positive = "Yes")
+cm_nb
+```
+
+#############################################################
+
+#competiton portion
+
+
+```{r}
+comp = read.csv("CaseStudy1CompSet No Attrition.csv")
+
+# making predicitions on the NB model
+comp_pred = predict(nb_fit, comp)
+
+final_pred = data.frame(
+  ID = comp$ID,
+  Attrition = comp_pred
+)
+final_pred
+
+
+write.csv(final_pred,
+          "Case1PredictionMuskaan Attrition.csv",
+          row.names = FALSE)
+```
+
+
+
+
