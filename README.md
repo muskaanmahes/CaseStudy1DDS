@@ -7,3 +7,4 @@ DDSAnalytics was hired by Frito-Lay to identify which key factors influence empl
 
 Two machine learning models were built to predict turnover risk. K-Nearest Neighbors and the Naive Bayes model were built and tested on all features of the dataset. The Naive Bayes model performed the best by correctly identifying 57% of employees liekly to leave and 88% of those likely to stay. Additionally, using a $200 incentive could help Frito-Lay save around $300,000-$2.6 million through reduced turnover. 
 
+youtube link: https://youtu.be/7fpPGX5MRcs?si=zjNwHg77L4n_L0VV
